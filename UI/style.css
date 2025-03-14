@@ -1,0 +1,24 @@
+body {
+    font-family: Arial, sans-serif;
+    width: 200px;
+    padding: 10px;
+  }
+  
+  #container {
+    text-align: center;
+  }
+  
+  #tickerInput {
+    width: 80%;
+    padding: 5px;
+    margin-bottom: 10px;
+  }
+  
+  #fetchButton {
+    padding: 5px 10px;
+  }
+  
+  #error {
+    color: red;
+  }
+  
