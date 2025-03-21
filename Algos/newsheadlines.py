@@ -1,92 +1,103 @@
 import nltk
-import pandas as pd
 import requests
 from bs4 import BeautifulSoup
-from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
-from nltk.tokenize import word_tokenize
-from nltk.corpus import stopwords
+from transformers import pipeline
 
-# Download NLTK dependencies if not already installed
+# Download NLTK resources
 nltk.download("punkt")
 nltk.download("stopwords")
 
-# Initialize Sentiment Analyzer
-analyzer = SentimentIntensityAnalyzer()
+# Initialize Hugging Face pipelines
+# Urgency: zero-shot classification with facebook/bart-large-mnli
+urgency_classifier = pipeline(
+    "zero-shot-classification", model="facebook/bart-large-mnli"
+)
+# FinBERT for sentiment analysis (using a model fine-tuned for financial tone)
+finbert_classifier = pipeline(
+    "sentiment-analysis", model="yiyanghkust/finbert-tone"
+)
 
-# Define urgency keywords related to financial crises
-URGENT_WORDS = {
-    "crash", "collapse", "plummet", "default", "bankruptcy", "crisis",
-    "recession", "inflation", "panic", "downturn", "sell-off", "meltdown",
-    "volatility", "rate hikes", "interest rates", "bear market"
-}
-
-# Define keywords for market-moving impact
-MARKET_MOVERS = {"fed", "rate", "inflation", "stocks", "nasdaq", "dow", "s&p", "bond", "oil", "OPEC"}
-
-def fetch_financial_headlines():
-    """Scrapes live financial headlines from Yahoo Finance."""
-    url = "https://finance.yahoo.com/"
+def fetch_google_news_data(query="financial news"):
+    """
+    Scrapes Google News search results for financial headlines and authors.
+    
+    Follows the JavaScript logic:
+      - Select the main element with class 'IKXQhd'
+      - Within it, select all anchor tags with class 'JtKRv' as headlines
+      - Also select all span elements as authors
+    """
     headers = {"User-Agent": "Mozilla/5.0"}
-    
+    url = f"https://news.google.com/search?q={query.replace(' ', '%20')}&hl=en-US&gl=US&ceid=US:en"
     response = requests.get(url, headers=headers)
-    if response.status_code != 200:
-        print("Failed to retrieve Yahoo Finance headlines")
-        return []
-
-    soup = BeautifulSoup(response.text, "lxml")
-    headlines = [a.text for a in soup.find_all("a", class_="js-content-viewer") if a.text]
+    soup = BeautifulSoup(response.text, "html.parser")
     
-    return headlines[:10]  # Return top 10 headlines
-
-def preprocess_text(text):
-    """Tokenize and clean text"""
-    tokens = word_tokenize(text.lower())  # Convert to lowercase and tokenize
-    tokens = [word for word in tokens if word.isalnum()]  # Remove punctuation
-    tokens = [word for word in tokens if word not in stopwords.words("english")]  # Remove stopwords
-    return tokens
-
-def compute_sentiment_score(text):
-    """Compute financial sentiment score using VADER"""
-    sentiment = analyzer.polarity_scores(text)
-    return sentiment["compound"]  # VADER compound sentiment score
+    main_element = soup.select_one("main.IKXQhd")
+    headlines = []
+    authors = []
+    if main_element:
+        headline_elements = main_element.select("a.JtKRv")
+        author_elements = main_element.select("span")
+        headlines = [el.get_text(strip=True) for el in headline_elements if el.get_text(strip=True)]
+        authors = [el.get_text(strip=True) for el in author_elements if el.get_text(strip=True)]
+    return headlines, authors
 
 def compute_urgency_score(text):
-    """Compute urgency score based on the presence of urgent words"""
-    tokens = preprocess_text(text)
-    urgent_count = sum(1 for word in tokens if word in URGENT_WORDS)
-    return urgent_count / max(1, len(tokens))  # Normalize by total words
+    """
+    Computes urgency using zero-shot classification.
+    
+    It classifies the text into 'urgent' or 'non-urgent' and returns
+    the probability for the 'urgent' label.
+    """
+    candidate_labels = ["urgent", "non-urgent"]
+    result = urgency_classifier(text, candidate_labels)
+    label_scores = dict(zip(result["labels"], result["scores"]))
+    return label_scores.get("urgent", 0)
 
-def compute_market_impact(text):
-    """Estimate market impact score based on major financial keywords"""
-    tokens = preprocess_text(text)
-    impact_count = sum(1 for word in tokens if word in MARKET_MOVERS)
-    return impact_count / max(1, len(tokens))
+def compute_finbert_score(text):
+    """
+    Uses FinBERT for sentiment analysis.
+    
+    Returns the sum of the positive and negative sentiment probabilities,
+    representing how strongly the headline deviates from a neutral tone.
+    """
+    results = finbert_classifier(text, top_k=None)[0]
+    pos_score = 0
+    neg_score = 0
+    for r in results:
+        label = r["label"].lower()
+        if label == "positive":
+            pos_score = r["score"]
+        elif label == "negative":
+            neg_score = r["score"]
+    return pos_score + neg_score
 
 def rank_headlines(headlines):
-    """Rank financial headlines based on sentiment, urgency, and market impact"""
-    ranked_headlines = []
+    """
+    Ranks headlines by combining:
+      - FinBERT non-neutral sentiment score
+      - Urgency score from zero-shot classification
     
+    The final pressing score is the average (50/50 split) of these two scores.
+    """
+    ranked = []
     for headline in headlines:
-        sentiment_score = compute_sentiment_score(headline)
-        urgency_score = compute_urgency_score(headline)
-        impact_score = compute_market_impact(headline)
-        
-        # Calculate pressing score (weights: Sentiment 40%, Urgency 30%, Impact 30%)
-        pressing_score = (0.4 * sentiment_score) + (0.3 * urgency_score) + (0.3 * impact_score)
-        
-        ranked_headlines.append((headline, pressing_score))
-    
-    # Sort headlines by pressing score in descending order
-    ranked_headlines.sort(key=lambda x: x[1], reverse=True)
-    
-    return ranked_headlines
+        urgency = compute_urgency_score(headline)
+        finbert_score = compute_finbert_score(headline)
+        pressing_score = 0.5 * finbert_score + 0.5 * urgency
+        ranked.append((headline, round(pressing_score, 4)))
+    return sorted(ranked, key=lambda x: x[1], reverse=True)
 
-# Fetch and rank live financial headlines
-financial_headlines = fetch_financial_headlines()
-if financial_headlines:
-    ranked = rank_headlines(financial_headlines)
-
-    # Display the results
-    df = pd.DataFrame(ranked, columns=["Headline", "Pressing Score"])
-    import ace_tools as tools
-    tools.display_dataframe_to_user(name="Live Financial Headlines Ranking", dataframe=df)
+if __name__ == "__main__":
+    headlines, authors = fetch_google_news_data()
+    if not headlines:
+        print("No headlines found.")
+    else:
+        ranked = rank_headlines(headlines)
+        print("\nTop Financial Headlines (Ranked by 50/50 FinBERT & Urgency):\n")
+        for i, (headline, score) in enumerate(ranked, 1):
+            print(f"{i}. {headline} — Pressing Score: {score}")
+        # Optionally, print all scraped headlines and authors
+        print("\nAll Scraped Headlines:")
+        print(headlines)
+        print("\nAll Scraped Authors:")
+        print(authors)
