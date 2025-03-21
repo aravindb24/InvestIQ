@@ -1,1 +1,2 @@
-4NIFR0WSYEG706YI
+alpha: 4NIFR0WSYEG706YI
+coingecko: 	CG-z9dFsALqjPqj9ndKhKotVnfW
