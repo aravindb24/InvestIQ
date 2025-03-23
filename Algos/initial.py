@@ -13,10 +13,6 @@ from nltk.tokenize import sent_tokenize
 from transformers import pipeline
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import accuracy_score
-from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import Dense, Dropout
-from tensorflow.keras.optimizers import Adam
-from tensorflow.keras.callbacks import EarlyStopping
 
 # =============================================================================
 # 1. Multi-Aspect & Stock-Specific News Analysis
@@ -93,8 +89,9 @@ async def scrape_historical_price_data_pyppeteer(stock):
     and then extracts the HTML of the loaded table.
     """
     url = f"https://finance.yahoo.com/quote/{stock}/history?p={stock}"
-    browser = await launch(headless=True, args=['--no-sandbox'])
+    browser = await launch(headless=False, executablePath='C:\Program Files\Google\Chrome\Application\chrome.exe', args=['--no-sandbox'])
     page = await browser.newPage()
+    await page.setViewport({'width': 1920, 'height': 1080})
     await page.goto(url, {"waitUntil": "networkidle2"})
     
     # Wait for and click the date picker button
@@ -103,22 +100,25 @@ async def scrape_historical_price_data_pyppeteer(stock):
     await page.click(date_picker_selector)
     
     # Wait for the date input to appear and modify its value
-    start_date_input_selector = "#menu-49 > div > section > div:nth-child(2) > input:nth-child(2)"
+    start_date_input_selector = "#menu-94 > div > section > div:nth-child(2) > input.inputClass.yf-1th5n0r.ai-style-change-1"
+
+    # Execute JavaScript to change the date by subtracting 20 years
     await page.waitForSelector(start_date_input_selector)
-    
-    # Get the current value from the input (format assumed MM/DD/YYYY)
-    current_value = await page.evaluate(f'document.querySelector("{start_date_input_selector}").value')
-    try:
-        current_date = datetime.strptime(current_value, "%m/%d/%Y")
-    except Exception:
-        current_date = datetime.today()
-    # Subtract 20 years (keeping day and month)
-    new_year = current_date.year - 20
-    new_date = current_date.replace(year=new_year)
-    new_date_str = new_date.strftime("%m/%d/%Y")
-    
-    # Set the input's value to the new date
-    await page.evaluate(f'document.querySelector("{start_date_input_selector}").value = "{new_date_str}"')
+    await page.click(start_date_input_selector)
+    new_date_data = await page.evaluate(
+        '''
+        (selector) => {
+            const inputElement = document.querySelector(selector);
+            const currentDate = new Date(inputElement.value);
+            currentDate.setFullYear(currentDate.getFullYear() - 20);
+            const newDateString = currentDate.toISOString().split('T')[0];
+            inputElement.value = newDateString;
+            inputElement.dispatchEvent(new Event('input', { bubbles: true }));
+            return { newInputValue: inputElement.value };
+        }
+        ''',
+        start_date_input_selector
+    )
     
     # Click the "Apply" button (this selector might need adjustment)
     apply_button_selector = "#menu-49 > div > section > div.controls.yf-1th5n0r > button.primary-btn.fin-size-small.rounded.yf-1bk9lim"
