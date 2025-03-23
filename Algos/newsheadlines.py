@@ -60,7 +60,7 @@ def compute_finbert_score(text):
     Returns the sum of the positive and negative sentiment probabilities,
     representing how strongly the headline deviates from a neutral tone.
     """
-    results = finbert_classifier(text, top_k=None)[0]
+    results = finbert_classifier(text, top_k=None)
     pos_score = 0
     neg_score = 0
     for r in results:
