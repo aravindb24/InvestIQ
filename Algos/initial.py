@@ -85,64 +85,127 @@ def analyze_article_with_stock_specific_aspects(article_text, stock_keywords, fi
 async def scrape_historical_price_data_pyppeteer(stock):
     """
     Uses Pyppeteer to scrape Yahoo Finance's historical prices for the given stock.
-    It simulates clicking the date picker, setting the start date to 20 years ago (keeping day/month),
-    and then extracts the HTML of the loaded table.
+    It simulates clicking the date picker and sets the start date to 20 years ago by
+    typing into the input field from within a single page.evaluate call written in
+    JavaScript. Debug logging is added to help track progress.
     """
     url = f"https://finance.yahoo.com/quote/{stock}/history?p={stock}"
-    browser = await launch(headless=False, executablePath='C:\Program Files\Google\Chrome\Application\chrome.exe', args=['--no-sandbox'])
-    page = await browser.newPage()
-    await page.setViewport({'width': 1920, 'height': 1080})
-    await page.goto(url, {"waitUntil": "networkidle2"})
-    
-    # Wait for and click the date picker button
-    date_picker_selector = "#nimbus-app > section > section > section > article > div.container > div.container.yf-e8ilep > div.menuContainer.yf-jef819 > button"
-    await page.waitForSelector(date_picker_selector)
-    await page.click(date_picker_selector)
-    
-    # Wait for the date input to appear and modify its value
-    start_date_input_selector = "#menu-94 > div > section > div:nth-child(2) > input.inputClass.yf-1th5n0r.ai-style-change-1"
-
-    # Execute JavaScript to change the date by subtracting 20 years
-    await page.waitForSelector(start_date_input_selector)
-    await page.click(start_date_input_selector)
-    new_date_data = await page.evaluate(
-        '''
-        (selector) => {
-            const inputElement = document.querySelector(selector);
-            const currentDate = new Date(inputElement.value);
-            currentDate.setFullYear(currentDate.getFullYear() - 20);
-            const newDateString = currentDate.toISOString().split('T')[0];
-            inputElement.value = newDateString;
-            inputElement.dispatchEvent(new Event('input', { bubbles: true }));
-            return { newInputValue: inputElement.value };
-        }
-        ''',
-        start_date_input_selector
+    browser = await launch(
+        headless=False,
+        executablePath=r'C:\Program Files\Google\Chrome\Application\chrome.exe',
+        args=['--no-sandbox']
     )
     
-    # Click the "Apply" button (this selector might need adjustment)
-    apply_button_selector = "#menu-49 > div > section > div.controls.yf-1th5n0r > button.primary-btn.fin-size-small.rounded.yf-1bk9lim"
     try:
-        await page.click(apply_button_selector)
-    except Exception:
-        # If no apply button is found, assume the change is auto-applied.
-        pass
+        page = await browser.newPage()
+        print("New page created.")
+        await page.setViewport({'width': 1920, 'height': 1080})
+        print("Viewport set to 1920x1080.")
+        await page.goto(url, {"waitUntil": "networkidle2"})
+        print(f"Navigated to {url}")
 
-    # Wait for the table to reload (adjust time as needed)
-    await page.waitFor(5000)
-    table_selector = "#nimbus-app > section > section > section > article > div.container > div.table-container.yf-1jecxey > table > thead"
-    await page.waitForSelector(table_selector)
-    table_html = await page.evaluate(f'document.querySelector("{table_selector}").outerHTML')
-    await browser.close()
+        # Wait for the date picker button
+        date_picker_selector = (
+            "#nimbus-app > section > section > section > article > div.container > "
+            "div.container.yf-e8ilep > div.menuContainer.yf-3yi3k4 > button"
+        )
+        print("Waiting for date picker selector...")
+        await page.waitForSelector(date_picker_selector, {"timeout": 15000})
+        print("Date picker selector found.")
+        await page.click(date_picker_selector)
+        print("Clicked on date picker.")
+
+        # Compute the new start date (20 years ago, preserving month/day)
+        today = datetime.today()
+        twenty_years_ago = today.replace(year=today.year - 20)
+        new_date_str = twenty_years_ago.strftime("%m/%d/%Y")  # e.g., "03/15/2005"
+        print(f"New date to type: {new_date_str}")
+
+        # Updated selectors for the start date input and the Apply button.
+        start_date_input_selector = (
+            "#menu-27 > div > section > div:nth-child(2) > input:nth-child(2)"
+        )
+        apply_button_selector = (
+            "#menu-27 > div > section > div.controls.yf-1th5n0r > "
+            "button.primary-btn.fin-size-small.rounded.yf-11iqs7b"
+        )
+
+        # All interaction with the input field is done inside a single evaluate call.
+        js_code = r'''
+        (newDate, startSelector, applySelector) => {
+            return new Promise(resolve => {
+                const input = document.querySelector(startSelector);
+                if (!input) {
+                    console.error("Start date input not found.");
+                    resolve(false);
+                    return;
+                }
+                input.click();
+                input.focus();
+                setTimeout(() => {
+                    let i = 0;
+                    const typeChar = () => {
+                        if (i < newDate.length) {
+                            const prev = input.value;
+                            nativeSetter.call(input, prev + newDate[i]);
+                            input.dispatchEvent(new Event('input', { bubbles: true }));
+                            i++;
+                            setTimeout(typeChar, 100);
+                        } else {
+                            // Dispatch the "Enter" keydown event.
+                            const enterEvent = new KeyboardEvent('keydown', {
+                                key: 'Enter',
+                                code: 'Enter',
+                                bubbles: true
+                            });
+                            input.dispatchEvent(enterEvent);
+                            setTimeout(() => {
+                                const applyBtn = document.querySelector(applySelector);
+                                if (applyBtn) {
+                                    applyBtn.click();
+                                } else {
+                                    console.warn("Apply button not found; assuming auto-apply.");
+                                }
+                                resolve(true);
+                            }, 500);
+                        }
+                    };
+                    typeChar();
+                }, 500);
+            });
+        }
+        '''
+        print("Executing evaluate function to type the new date...")
+        await page.evaluate(js_code, new_date_str, start_date_input_selector, apply_button_selector)
+        print("Evaluate function executed successfully.")
+        # Wait for the historical data table to appear
+        table_selector = (
+            "#nimbus-app > section > section > section > article > div.container > "
+            "div.table-container.yf-1jecxey > table > thead"
+        )
+        print("Waiting for the historical data table...")
+        await page.waitForSelector(table_selector, {"timeout": 15000})
+        print("Historical data table found.")
+        table_html = await page.evaluate(f'document.querySelector("{table_selector}").outerHTML')
+        print("Extracted table HTML.")
     
-    # Parse the table HTML using BeautifulSoup
+    except Exception as e:
+        print("An exception occurred:")
+        traceback.print_exc()
+        table_html = ""
+    
+    if not table_html:
+        print("No table HTML extracted; returning an empty DataFrame.")
+        return pd.DataFrame()
+    
+    # Parse the table HTML using BeautifulSoup.
     soup = BeautifulSoup(table_html, "html.parser")
     rows = soup.find_all("tr")
     data = []
-    for row in rows[1:]:
+    for row in rows[1:]:  # Skip the header row.
         cols = row.find_all("td")
         if len(cols) < 6:
-            continue  # Skip non-data rows (e.g., dividends)
+            continue
         try:
             date_str = cols[0].get_text(strip=True)
             date_obj = datetime.strptime(date_str, "%b %d, %Y")
@@ -160,9 +223,10 @@ async def scrape_historical_price_data_pyppeteer(stock):
                 "Close": close_val,
                 "Volume": volume_val
             })
-        except Exception:
+        except Exception as e:
+            print("Error parsing row:", e)
             continue
-        print(data)
+            
     return pd.DataFrame(data)
 
 def scrape_historical_price_data(stock):
