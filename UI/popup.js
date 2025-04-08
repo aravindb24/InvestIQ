@@ -1,4 +1,5 @@
 document.addEventListener('DOMContentLoaded', () => {
+  // ---------------- Stock Monitor Code ----------------
   const apiKey = '4NIFR0WSYEG706YI'; // Replace with your API key
   const searchBtn = document.getElementById('searchBtn');
   const stockSymbolInput = document.getElementById('stockSymbol');
@@ -56,4 +57,39 @@ document.addEventListener('DOMContentLoaded', () => {
     errorContainer.style.display = 'block';
     resultContainer.style.display = 'none';
   }
+  
+  // ---------------- News Headlines Code ----------------
+  fetchNewsData();
 });
+
+function fetchNewsData() {
+  const newsContainer = document.getElementById('newsContainer');
+  // Replace with your Flask API endpoint URL if different:
+  const apiUrl = 'http://localhost:5000/api/news';
+  
+  fetch(apiUrl)
+    .then(response => response.json())
+    .then(data => {
+      newsContainer.innerHTML = ''; // Clear any previous content
+      if (data.length === 0) {
+        newsContainer.innerHTML = '<p>No news headlines available at the moment.</p>';
+      } else {
+        // Take the top 100 if available
+        const headlines = data.slice(0, 100);
+        headlines.forEach(item => {
+          const newsItem = document.createElement('div');
+          newsItem.className = 'news-item';
+          newsItem.innerHTML = `
+            <div class="news-headline">${item.headline}</div>
+            <div class="news-score">Pressing Score: ${item.pressing_score}</div>
+            <div class="news-link"><a href="${item.link}" target="_blank">Read Article</a></div>
+          `;
+          newsContainer.appendChild(newsItem);
+        });
+      }
+    })
+    .catch(error => {
+      newsContainer.innerHTML = '<p>Failed to load news headlines.</p>';
+      console.error('Error fetching news headlines:', error);
+    });
+}
