@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html>
   <head>
+    <meta charset="UTF-8">
     <title>Stock Monitor</title>
     <style>
       body {
@@ -10,17 +11,17 @@
         padding: 15px;
         background-color: #f5f5f5;
       }
-      h1 {
+      h1, h2 {
         text-align: center;
-        font-size: 18px;
         color: #333;
+      }
+      h1 {
+        font-size: 18px;
       }
       h2 {
         font-size: 16px;
-        color: #333;
         margin-top: 20px;
         margin-bottom: 10px;
-        text-align: center;
       }
       .search-container {
         display: flex;
@@ -44,12 +45,26 @@
       #searchBtn:hover {
         background-color: #3b78e7;
       }
-      #resultContainer {
+      #errorContainer {
+        color: #d23f31;
+        padding: 10px;
+        text-align: center;
+        background-color: rgba(210,63,49,0.1);
+        border-radius: 4px;
+        margin-top: 10px;
         display: none;
+      }
+      /* --- Unified Results Container --- */
+      #resultsContainer {
+        margin-bottom: 15px;
+      }
+      .stock-card {
+        position: relative;
         background-color: white;
         border-radius: 4px;
-        padding: 12px;
-        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+        padding: 12px 40px 12px 12px; /* extra right padding for the toggle button */
+        box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        margin-bottom: 10px;
       }
       .stock-header {
         font-size: 16px;
@@ -70,14 +85,40 @@
       .negative {
         color: #d23f31;
       }
-      .error {
-        color: #d23f31;
-        padding: 10px;
+      /* --- Sleek Toggle Button on Stock Card --- */
+      .toggle-button {
+        position: absolute;
+        top: 12px;
+        right: 12px;
+        background-color: #000;
+        color: #fff;
+        border: none;
+        border-radius: 50%;
+        width: 24px;
+        height: 24px;
+        font-size: 16px;
+        line-height: 24px;
         text-align: center;
-        background-color: rgba(210, 63, 49, 0.1);
-        border-radius: 4px;
-        margin-top: 10px;
-        display: none;
+        cursor: pointer;
+      }
+      /* --- Loading Spinner --- */
+      .loading-container {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        height: 60px;
+      }
+      .spinner {
+        border: 6px solid #f3f3f3;
+        border-top: 6px solid #4285f4;
+        border-radius: 50%;
+        width: 30px;
+        height: 30px;
+        animation: spin 1s linear infinite;
+      }
+      @keyframes spin {
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
       }
       /* --- News Headlines Section --- */
       #newsContainer {
@@ -86,7 +127,7 @@
         background-color: white;
         border-radius: 4px;
         padding: 10px;
-        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+        box-shadow: 0 1px 3px rgba(0,0,0,0.1);
         margin-top: 15px;
       }
       .news-item {
@@ -118,15 +159,12 @@
       <input type="text" id="stockSymbol" placeholder="Enter stock symbol (e.g., AAPL)">
       <button id="searchBtn">Lookup</button>
     </div>
-    <div id="errorContainer" class="error"></div>
-    <div id="resultContainer">
-      <div class="stock-header" id="stockName"></div>
-      <div class="stock-price" id="stockPrice"></div>
-      <div class="stock-change" id="stockChange"></div>
-      <div class="stock-volume">Volume: <span id="stockVolume"></span></div>
-    </div>
-
-    <!-- New Section: Financial Headlines -->
+    <div id="errorContainer"></div>
+    
+    <!-- Unified container for search results and watchlisted items -->
+    <div id="resultsContainer"></div>
+    
+    <!-- News Headlines Section -->
     <h2>Top Financial Headlines</h2>
     <div id="newsContainer"></div>
     
